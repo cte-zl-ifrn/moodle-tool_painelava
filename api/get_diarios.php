@@ -7,7 +7,7 @@ if (!defined('NO_MOODLE_COOKIES')) {
     define('NO_MOODLE_COOKIES', true);
 }
 
-require_once('../../../config.php');
+require_once('../../../../config.php');
 require_once('../locallib.php');
 require_once("servicelib.php");
 
@@ -88,6 +88,8 @@ class get_diarios_service extends \tool_painelava\service
     function get_diarios($username, $semestre, $situacao, $ordenacao, $disciplina, $curso, $arquetipo, $q, $page, $page_size)
     {
         global $DB, $CFG, $USER;
+
+        require_once($CFG->dirroot . '/course/externallib.php');
 
         $USER = $DB->get_record('user', ['username' => strtolower($username)]);
         // $USER = $DB->get_record('user', ['username' => $_GET['username']]);
