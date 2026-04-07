@@ -44,6 +44,7 @@ try {
     $whitelist = [
         'get_diarios',
         'get_atualizacoes_counts',
+        'get_course_info',
 
         'set_favourite_course',
         'set_visible_course',
