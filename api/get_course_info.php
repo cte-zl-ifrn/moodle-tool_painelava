@@ -14,7 +14,7 @@ class get_course_info_service extends \tool_painelava\service
 {
     function do_call()
     {
-        global $DB, $USER;
+        global $DB, $USER, $OUTPUT, $PAGE;
 
         $courseid = \tool_painelava\aget($_GET, 'courseid', 0);
         $username = strtolower(\tool_painelava\aget($_GET, 'username', ''));
@@ -32,12 +32,44 @@ class get_course_info_service extends \tool_painelava\service
             }
         }
 
+        $summary = format_text($course->summary, FORMAT_HTML);
+
+        if (!$OUTPUT) {
+            $PAGE->set_url('/admin/tool/painelava/api/get_course_info.php');
+            $OUTPUT = $PAGE->get_renderer('core');
+        }
+
+        $context = \context_course::instance($course->id);
+        $teachers = get_enrolled_users($context, 'moodle/course:update'); 
+        $docentes = [];
+
+        foreach ($teachers as $teacher) {
+            $userpicture = new \user_picture($teacher);
+            $userpicture->size = 100;
+
+            $pictureurl = $userpicture->get_url($PAGE, null)->out(false);
+
+            $description = format_text($teacher->description, $teacher->descriptionformat, ['context' => \context_user::instance($teacher->id)]);
+
+            $docentes[] = [
+                'fullname' => fullname($teacher),
+                'picture'  => $pictureurl,
+                'description' => trim($description)
+            ];
+        }
+
+        // ORDENAÇÃO ALFABÉTICA
+        usort($docentes, function($a, $b) {
+            return strcoll($a['fullname'], $b['fullname']);
+        });
+
         return [
             "id" => $course->id,
             "fullname" => $course->fullname,
             "shortname" => $course->shortname,
-            "summary" => trim(strip_tags($course->summary)), // Limpa o HTML do Moodle
-            "is_enrolled" => $is_enrolled
+            "summary" => trim(($summary)),
+            "is_enrolled" => $is_enrolled,
+            "docentes" => $docentes
         ];
     }
 }
