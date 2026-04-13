@@ -113,6 +113,47 @@ class get_diarios_service extends \tool_painelava\service
         return $courses;
     }
 
+    /**
+     * Busca um valor dentro de um array associativo usando "dot notation".
+     * Exemplo: busca 'modalidade.id' dentro do JSON de login.
+     */
+    private function resolve_dot_notation($array, $path) {
+        $keys = explode('.', $path);
+        foreach ($keys as $key) {
+            if (is_array($array) && array_key_exists($key, $array)) {
+                $array = $array[$key];
+            } else {
+                return null;
+            }
+        }
+        return $array;
+    }
+
+    /**
+     * Verifica se o aluno atende a uma restrição específica.
+     */
+    private function avalia_restricao($aluno_data, $chave, $valor_esperado) {
+        // Busca o valor real que está no JSON do aluno
+        $valor_aluno = $this->resolve_dot_notation($aluno_data, $chave);
+        
+        // O JSON do SUAP unificou os campos "eh_*" dentro de "tipo_usuario"
+        if (strpos($chave, 'eh_') === 0 && $valor_aluno === null) {
+            // Se a chave é 'eh_aluno' e não existe direto no JSON, procuramos no 'tipo_usuario'
+            $tipo_usuario = strtolower($aluno_data['tipo_usuario'] ?? '');
+            
+            // Mapeamento básico: 'eh_aluno' -> procura por 'aluno'
+            $termo_busca = str_replace('eh_', '', $chave); 
+            $valor_aluno = (strpos($tipo_usuario, $termo_busca) !== false) ? 'true' : 'false';
+        }
+
+        if (is_bool($valor_aluno)) {
+            $valor_aluno = $valor_aluno ? 'true' : 'false';
+        }
+
+        // Verifica se bateu (usando == para ignorar diferenças de int/string como 1 e "1")
+        return (string)$valor_aluno === (string)$valor_esperado;
+    }
+
     function get_diarios($username, $semestre, $situacao, $ordenacao, $disciplina, $curso, $arquetipo, $q, $page, $page_size)
     {
         global $DB, $CFG, $USER;
@@ -212,28 +253,76 @@ class get_diarios_service extends \tool_painelava\service
 
             if ($indice_opcao !== -1) {
                 // 2. Busca todos os cursos visíveis marcados com essa opção
-                $sql_vitrine = "SELECT c.id, c.fullname, c.shortname, c.summary 
+                $sql_vitrine = "SELECT c.id, c.fullname, c.shortname
                                 FROM {course} c
                                 JOIN {customfield_data} d ON d.instanceid = c.id
                                 WHERE d.fieldid = ? AND d.intvalue = ? AND c.visible = 1";
                                 
                 $cursos_vitrine = $DB->get_records_sql($sql_vitrine, [$campo_sala->id, $indice_opcao]);
 
-                // 3. Cria um mapa (Dicionário) das matrículas atuais do aluno (O(1))
-                $mapa_matriculados = [];
-                foreach ($all_diarios as $diario_aluno) {
-                    $mapa_matriculados[$diario_aluno->id] = true;
-                }
+                if (!empty($cursos_vitrine)) {
+                    
+                    // A) Busca o JSON do aluno logado
+                    $sql_user_json = "SELECT d.data
+                                      FROM {user_info_data} d
+                                      JOIN {user_info_field} f ON d.fieldid = f.id
+                                      WHERE d.userid = ? AND f.shortname = 'last_login'";
+                    $json_record = $DB->get_record_sql($sql_user_json, [$USER->id]);
 
-                // 4. Monta a lista final com a Flag solicitada
-                foreach ($cursos_vitrine as $curso_vitrine) {
+                    $aluno_data = [];
+                    if ($json_record && !empty($json_record->data)) {
+                        $texto_limpo = strip_tags($json_record->data);
+                        $texto_limpo = html_entity_decode($texto_limpo, ENT_QUOTES, 'UTF-8');
+                        
+                        $aluno_data = json_decode($texto_limpo, true);
+                    }
+
+                    // B) Busca TODAS as restrições dos cursos da vitrine em lote
+                    $vitrine_ids = array_column($cursos_vitrine, 'id');
+                    list($v_insql, $v_inparams) = $DB->get_in_or_equal($vitrine_ids);
                     
-                    $curso_vitrine->is_enrolled = isset($mapa_matriculados[$curso_vitrine->id]);
+                    $sql_restricoes = "SELECT * FROM {sga_restricoes_autoinscricao} WHERE courseid $v_insql";
+                    $restricoes_db = $DB->get_records_sql($sql_restricoes, $v_inparams);
                     
-                    $curso_vitrine->summary = trim(strip_tags($curso_vitrine->summary));
-                    
-                    $vitrine_autoinscricoes[] = $curso_vitrine;
+                    // Agrupa as restrições por ID do curso
+                    $restr_by_course = [];
+                    if ($restricoes_db) {
+                        foreach ($restricoes_db as $r) {
+                            $restr_by_course[$r->courseid][] = $r;
+                        }
+                    }
+
+                    // C) Monta o mapa de matrículas para checar o botão "inscreva-se" vs "Acessar"
+                    $mapa_matriculados = [];
+                    foreach ($all_diarios as $diario_aluno) {
+                        $mapa_matriculados[$diario_aluno->id] = true;
+                    }
+
+                    // D) Avalia curso por curso
+                    foreach ($cursos_vitrine as $curso_vitrine) {
+                        
+                        // Passa no filtro por padrão (não tiver restrições cadastradas, todo mundo vê)
+                        $passou_nos_filtros = false; 
+                        
+                        // Se o curso tem restrições, testa todas
+                        if (isset($restr_by_course[$curso_vitrine->id])) {
+                            foreach ($restr_by_course[$curso_vitrine->id] as $regra) {
+                                // Se falhar em UMA regra, não passa (Lógica AND)
+                                if (!$this->avalia_restricao($aluno_data, $regra->chave, $regra->restricao)) {
+                                    $passou_nos_filtros = false;
+                                    break; 
+                                }
+                            }
+                        }
+
+                        // Se o aluno atende a todas as restrições, adicionamos o curso na tela
+                        if ($passou_nos_filtros) {
+                            $curso_vitrine->is_enrolled = isset($mapa_matriculados[$curso_vitrine->id]);
+                            $vitrine_autoinscricoes[] = $curso_vitrine;
+                        }
+                    }
                 }
+                
             }
         }
 
