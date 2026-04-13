@@ -11,28 +11,28 @@ require_once('../../../../config.php');
 require_once('../locallib.php');
 require_once("servicelib.php");
 
-define("REGEX_CODIGO_DIARIO", '/^(\d\d\d\d\d)\.(\d*)\.(\d*)\.(.*)\.(.*\..*)$/');
+// define("REGEX_CODIGO_DIARIO", '/^(\d\d\d\d\d)\.(\d*)\.(\d*)\.(.*)\.(.*\..*)$/');
 define("REGEX_CODIGO_COORDENACAO", '/^ZL\.\d*/');
 define("REGEX_CODIGO_PRATICA", '/^(.*)\.(\d{11,14}\d*)$/');
-define("REGEX_CODIGO_DIARIO_ELEMENTS_COUNT", 6);
-define("REGEX_CODIGO_DIARIO_SEMESTRE", 1);
-define("REGEX_CODIGO_DIARIO_PERIODO", 2);
-define("REGEX_CODIGO_DIARIO_CURSO", 3);
-define("REGEX_CODIGO_DIARIO_TURMA", 4);
-define("REGEX_CODIGO_DIARIO_DISCIPLINA", 5);
+// define("REGEX_CODIGO_DIARIO_ELEMENTS_COUNT", 6);
+// define("REGEX_CODIGO_DIARIO_SEMESTRE", 1);
+// define("REGEX_CODIGO_DIARIO_PERIODO", 2);
+// define("REGEX_CODIGO_DIARIO_CURSO", 3);
+// define("REGEX_CODIGO_DIARIO_TURMA", 4);
+// define("REGEX_CODIGO_DIARIO_DISCIPLINA", 5);
 
 class get_diarios_service extends \tool_painelava\service
 {
 
     function get_cursos($all_diarios)
     {
-        global $DB;
         $result = [];
         foreach ($all_diarios as $course) {
-            preg_match(REGEX_CODIGO_DIARIO, $course->shortname, $matches);
-            if (count($matches) == REGEX_CODIGO_DIARIO_ELEMENTS_COUNT) {
-                $curso = $matches[REGEX_CODIGO_DIARIO_CURSO];
-                $result[$curso] = ['id' => $curso, 'label' => $curso];
+            $curso_id = $course->curso_codigo ?? '';
+            $curso_desc = $course->curso_descricao ?? '';
+            
+            if (!empty($curso_id)) {
+                $result[$curso_id] = ['id' => $curso_id, 'label' => $curso_desc ?: $curso_id];
             }
         }
         return array_values($result);
@@ -40,13 +40,13 @@ class get_diarios_service extends \tool_painelava\service
 
     function get_disciplinas($all_diarios)
     {
-        global $DB;
         $result = [];
         foreach ($all_diarios as $course) {
-            preg_match(REGEX_CODIGO_DIARIO, $course->shortname, $matches);
-            if (count($matches) == REGEX_CODIGO_DIARIO_ELEMENTS_COUNT) {
-                $disciplina = $matches[REGEX_CODIGO_DIARIO_DISCIPLINA];
-                $result[$disciplina] = ['id' => $disciplina, 'label' => "$course->fullname [$disciplina]"];
+            $disciplina_id = $course->disciplina_id ?? '';
+            $disciplina_desc = $course->disciplina_descricao ?? '';
+            
+            if (!empty($disciplina_id)) {
+                $result[$disciplina_id] = ['id' => $disciplina_id, 'label' => $disciplina_desc ?: $disciplina_id];
             }
         }
         return array_values($result);
@@ -54,14 +54,13 @@ class get_diarios_service extends \tool_painelava\service
 
     function get_semestres($all_diarios)
     {
-        global $DB;
-
         $result = [];
         foreach ($all_diarios as $course) {
-            preg_match(REGEX_CODIGO_DIARIO, $course->shortname, $matches);
-            if (count($matches) == REGEX_CODIGO_DIARIO_ELEMENTS_COUNT) {
-                $semestre = $matches[REGEX_CODIGO_DIARIO_SEMESTRE];
-                $result[$semestre] = ['id' => $semestre, 'label' => substr($semestre, 0, -1) . '.' . substr($semestre, 4, 1)];
+            $semestre = $course->turma_ano_periodo ?? '';
+            
+            if (!empty($semestre)) {
+                $label = str_replace('/', '.', $semestre);                 
+                $result[$semestre] = ['id' => $semestre, 'label' => $label];
             }
         }
         return array_values($result);
@@ -69,21 +68,49 @@ class get_diarios_service extends \tool_painelava\service
 
     function get_all_diarios($username)
     {
-        return \tool_painelava\get_recordset_as_array(
+        global $DB;
+        
+        $courses = \tool_painelava\get_recordset_as_array(
             "
-            SELECT      c.id, 
-                        c.shortname shortname,
-                        c.fullname fullname
+            SELECT      c.id, c.shortname, c.fullname
             FROM        {user} u
                             INNER JOIN {user_enrolments} ue ON (ue.userid = u.id)
                             INNER JOIN {enrol} e ON (e.id = ue.enrolid)
                             INNER JOIN {course} c ON (c.id = e.courseid)
-            WHERE u.username = ? 
-              AND ue.status = 0 
-              AND e.status = 0
+            WHERE u.username = ? AND ue.status = 0 AND e.status = 0
             ",
             [strtolower($username)]
         );
+
+        if (empty($courses)) return [];
+
+        $course_ids = array_column($courses, 'id');
+        list($insql, $inparams) = $DB->get_in_or_equal($course_ids);
+
+        $sql_cf = "SELECT d.id as dataid, d.instanceid, f.shortname, d.charvalue
+                   FROM {customfield_data} d
+                   JOIN {customfield_field} f ON d.fieldid = f.id
+                   WHERE d.instanceid $insql
+                     AND f.shortname IN ('turma_ano_periodo', 'disciplina_id', 'disciplina_descricao', 'curso_codigo', 'curso_descricao')";
+        
+        $cf_records = $DB->get_records_sql($sql_cf, $inparams);
+        
+        $cfs = [];
+        if ($cf_records) {
+            foreach ($cf_records as $rec) {
+                $cfs[$rec->instanceid][$rec->shortname] = trim($rec->charvalue);
+            }
+        }
+
+        foreach ($courses as &$c) {
+            $c->turma_ano_periodo = $cfs[$c->id]['turma_ano_periodo'] ?? '';
+            $c->disciplina_id = $cfs[$c->id]['disciplina_id'] ?? '';
+            $c->disciplina_descricao = $cfs[$c->id]['disciplina_descricao'] ?? '';
+            $c->curso_codigo = $cfs[$c->id]['curso_codigo'] ?? '';
+            $c->curso_descricao = $cfs[$c->id]['curso_descricao'] ?? '';
+        }
+
+        return $courses;
     }
 
     function get_diarios($username, $semestre, $situacao, $ordenacao, $disciplina, $curso, $arquetipo, $q, $page, $page_size)
@@ -93,7 +120,6 @@ class get_diarios_service extends \tool_painelava\service
         require_once($CFG->dirroot . '/course/externallib.php');
 
         $USER = $DB->get_record('user', ['username' => strtolower($username)]);
-        // $USER = $DB->get_record('user', ['username' => $_GET['username']]);
         if (!$USER) {
             return [
                 'error' => ['message' => "Usuário '{$_GET['username']}' não existe", 'code' => 404],
@@ -113,8 +139,6 @@ class get_diarios_service extends \tool_painelava\service
         $diarios = [];
         $coordenacoes = [];
         $praticas = [];
-
-        $cf_handler = \core_course\customfield\course_handler::create();
 
         foreach ($enrolled_courses as $diario) {
             unset($diario->summary);
@@ -148,18 +172,20 @@ class get_diarios_service extends \tool_painelava\service
             } elseif ($sala_tipo === 'praticas' || preg_match(REGEX_CODIGO_PRATICA, $diario->shortname)) {
                 $praticas[] = $diario;
             } else {
-                // Cai aqui se for 'diarios', 'autoinscricoes' ou se for um CURSO ANTIGO
+                
+                $c_semestre = isset($cf->turma_ano_periodo) ? trim($cf->turma_ano_periodo) : '';
+                $c_disciplina = isset($cf->disciplina_id) ? trim($cf->disciplina_id) : '';
+                $c_curso = isset($cf->curso_codigo) ? trim($cf->curso_codigo) : '';
+
                 if (!empty($semestre . $disciplina . $curso . $q)) {
-                    preg_match(REGEX_CODIGO_DIARIO, $diario->shortname, $matches);
-                    if (count($matches) == REGEX_CODIGO_DIARIO_ELEMENTS_COUNT) {
-                        if (
-                            ((empty($q)) || (!empty($q) && strpos(strtoupper($diario->shortname . ' ' . $diario->fullname), strtoupper($q)) !== false)) &&
-                            ((empty($semestre)) || (!empty($semestre) && $matches[REGEX_CODIGO_DIARIO_SEMESTRE] == $semestre)) &&
-                            ((empty($disciplina)) || (!empty($disciplina) && $matches[REGEX_CODIGO_DIARIO_DISCIPLINA] == $disciplina)) &&
-                            ((empty($curso)) || (!empty($curso) && $matches[REGEX_CODIGO_DIARIO_CURSO] == $curso))
-                        ) {
-                            $diarios[] = $diario;
-                        }
+                    
+                    if (
+                        ((empty($q)) || (!empty($q) && strpos(strtoupper($diario->shortname . ' ' . $diario->fullname), strtoupper($q)) !== false)) &&
+                        ((empty($semestre)) || (!empty($semestre) && $c_semestre == $semestre)) &&
+                        ((empty($disciplina)) || (!empty($disciplina) && $c_disciplina == $disciplina)) &&
+                        ((empty($curso)) || (!empty($curso) && $c_curso == $curso))
+                    ) {
+                        $diarios[] = $diario;
                     }
                 } else {
                     $diarios[] = $diario;
@@ -215,7 +241,7 @@ class get_diarios_service extends \tool_painelava\service
         return [
             "semestres" => $this->get_semestres($all_diarios),
             "disciplinas" => $this->get_disciplinas($all_diarios),
-            "cursos" => $this->get_cursos($all_diarios, 'ASC'),
+            "cursos" => $this->get_cursos($all_diarios),
             "diarios" => $diarios,
             "coordenacoes" => $coordenacoes,
             "praticas" => $praticas,
