@@ -271,28 +271,34 @@ class get_diarios_service extends \tool_painelava\service
 
                     $aluno_data = [];
                     if ($json_record && !empty($json_record->data)) {
-                        $texto_limpo = strip_tags($json_record->data);
-                        $texto_limpo = html_entity_decode($texto_limpo, ENT_QUOTES, 'UTF-8');
-                        
+                        $texto_limpo = html_entity_decode(strip_tags($json_record->data), ENT_QUOTES, 'UTF-8');
                         $aluno_data = json_decode($texto_limpo, true);
                     }
+
+                    $aluno_modalidade_id = $this->resolve_dot_notation($aluno_data, 'modalidade.id');
+                    $aluno_nivel_id = $this->resolve_dot_notation($aluno_data, 'modalidade.nivel_ensino.id');
 
                     // B) Busca TODAS as restrições dos cursos da vitrine em lote
                     $vitrine_ids = array_column($cursos_vitrine, 'id');
                     list($v_insql, $v_inparams) = $DB->get_in_or_equal($vitrine_ids);
                     
-                    $sql_restricoes = "SELECT * FROM {sga_restricoes_autoinscricao} WHERE courseid $v_insql";
-                    $restricoes_db = $DB->get_records_sql($sql_restricoes, $v_inparams);
+                    // Modalidade e Nível ensino do curso para comparar
+                    $sql_cf_vitrine = "SELECT d.instanceid, f.shortname, d.charvalue
+                                       FROM {customfield_data} d
+                                       JOIN {customfield_field} f ON d.fieldid = f.id
+                                       WHERE d.instanceid $v_insql
+                                         AND f.shortname IN ('curso_modalidade_id', 'curso_nivel_ensino_id')";
                     
-                    // Agrupa as restrições por ID do curso
-                    $restr_by_course = [];
-                    if ($restricoes_db) {
-                        foreach ($restricoes_db as $r) {
-                            $restr_by_course[$r->courseid][] = $r;
+                    $cf_vitrine_records = $DB->get_records_sql($sql_cf_vitrine, $v_inparams);
+                    
+                    $cf_vitrine = [];
+                    if ($cf_vitrine_records) {
+                        foreach ($cf_vitrine_records as $rec) {
+                            $cf_vitrine[$rec->instanceid][$rec->shortname] = trim($rec->charvalue);
                         }
                     }
 
-                    // C) Monta o mapa de matrículas para checar o botão "inscreva-se" vs "Acessar"
+                    // C) Monta o mapa de matrículas
                     $mapa_matriculados = [];
                     foreach ($all_diarios as $diario_aluno) {
                         $mapa_matriculados[$diario_aluno->id] = true;
@@ -301,28 +307,28 @@ class get_diarios_service extends \tool_painelava\service
                     // D) Avalia curso por curso
                     foreach ($cursos_vitrine as $curso_vitrine) {
                         
-                        // Passa no filtro por padrão (não tiver restrições cadastradas, todo mundo vê)
-                        $passou_nos_filtros = false; 
+                        $passou_nos_filtros = true; 
                         
-                        // Se o curso tem restrições, testa todas
-                        if (isset($restr_by_course[$curso_vitrine->id])) {
-                            foreach ($restr_by_course[$curso_vitrine->id] as $regra) {
-                                // Se falhar em UMA regra, não passa (Lógica AND)
-                                if (!$this->avalia_restricao($aluno_data, $regra->chave, $regra->restricao)) {
-                                    $passou_nos_filtros = false;
-                                    break; 
-                                }
-                            }
+                        $curso_mod_id = $cf_vitrine[$curso_vitrine->id]['curso_modalidade_id'] ?? '';
+                        $curso_niv_id = $cf_vitrine[$curso_vitrine->id]['curso_nivel_ensino_id'] ?? '';
+
+                        // REGRA 1: FILTRO DE MODALIDADE
+                        if ($curso_mod_id !== '' && (string)$curso_mod_id !== (string)$aluno_modalidade_id) {
+                            $passou_nos_filtros = false;
                         }
 
-                        // Se o aluno atende a todas as restrições, adicionamos o curso na tela
+                        // REGRA 2: FILTRO DE NÍVEL DE ENSINO
+                        if ($curso_niv_id !== '' && (string)$curso_niv_id !== (string)$aluno_nivel_id) {
+                            $passou_nos_filtros = false;
+                        }
+
                         if ($passou_nos_filtros) {
                             $curso_vitrine->is_enrolled = isset($mapa_matriculados[$curso_vitrine->id]);
                             $vitrine_autoinscricoes[] = $curso_vitrine;
                         }
                     }
-                }
-                
+
+                }    
             }
         }
 
