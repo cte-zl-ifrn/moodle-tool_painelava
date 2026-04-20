@@ -283,11 +283,18 @@ class get_diarios_service extends \tool_painelava\service
         $agrupamentos = [];
 
         foreach ($enrolled_courses as $diario) {
-            unset($diario->summary);
-            unset($diario->summaryformat);
-            unset($diario->courseimage);
             $coursecontext = \context_course::instance($diario->id);
-            $diario->can_set_visibility = has_capability('moodle/course:visibility', $coursecontext, $USER) ? 1 : 0;
+
+            $curso_limpo = new \stdClass();
+            $curso_limpo->id = $diario->id;
+            $curso_limpo->fullname = $diario->fullname;
+            $curso_limpo->shortname = $diario->shortname;
+            $curso_limpo->viewurl = $diario->viewurl;
+            $curso_limpo->progress = $diario->progress ?? null;
+            $curso_limpo->hasprogress = $diario->hasprogress ?? false;
+            $curso_limpo->isfavourite = $diario->isfavourite ?? false;
+            $curso_limpo->hidden = $diario->hidden ?? false;
+            $curso_limpo->can_set_visibility = has_capability('moodle/course:visibility', $coursecontext, $USER) ? 1 : 0;
 
             $sql = "SELECT f.shortname, d.intvalue, d.shortcharvalue, d.charvalue, d.value, f.type, f.configdata
                     FROM {customfield_data} d
@@ -329,19 +336,19 @@ class get_diarios_service extends \tool_painelava\service
 
                 if (!empty($semestre . $disciplina . $curso . $q)) {
                     if (
-                        ((empty($q)) || (!empty($q) && strpos(strtoupper($diario->shortname . ' ' . $diario->fullname), strtoupper($q)) !== false)) &&
+                        ((empty($q)) || (!empty($q) && strpos(strtoupper($curso_limpo->shortname . ' ' . $curso_limpo->fullname), strtoupper($q)) !== false)) &&
                         ((empty($semestre)) || (!empty($semestre) && $c_semestre == $semestre)) &&
                         ((empty($disciplina)) || (!empty($disciplina) && $c_disciplina == $disciplina)) &&
                         ((empty($curso)) || (!empty($curso) && $c_curso == $curso))
                     ) {
-                        $agrupamentos[$sala_tipo][] = $diario;
+                        $agrupamentos[$sala_tipo][] = $curso_limpo;
                     }
                 } else {
-                    $agrupamentos[$sala_tipo][] = $diario;
+                    $agrupamentos[$sala_tipo][] = $curso_limpo;
                 }
             } else {
                 // Outros tipos de sala entram sem filtros de busca
-                $agrupamentos[$sala_tipo][] = $diario;
+                $agrupamentos[$sala_tipo][] = $curso_limpo;
             }
         }
 
