@@ -80,19 +80,13 @@ class get_diarios_service extends \tool_painelava\service
         $course_ids = array_column($courses, 'id');
         list($insql, $inparams) = $DB->get_in_or_equal($course_ids);
 
-        $sql_cf = "SELECT d.id as dataid, d.instanceid, f.shortname, d.charvalue
-                   FROM {customfield_data} d
-                   JOIN {customfield_field} f ON d.fieldid = f.id
-                   WHERE d.instanceid $insql
-                     AND f.shortname IN ('turma_ano_periodo', 'disciplina_id', 'disciplina_descricao', 'curso_codigo', 'curso_descricao')";
-        
-        $cf_records = $DB->get_records_sql($sql_cf, $inparams);
-        
-        $cfs = [];
-        if ($cf_records) {
-            foreach ($cf_records as $rec) {
-                $cfs[$rec->instanceid][$rec->shortname] = trim($rec->charvalue);
-            }
+        $course_ids = array_column($courses, 'id'); 
+
+        $campos = ['turma_ano_periodo', 'disciplina_id', 'disciplina_descricao', 'disciplina_sigla', 'curso_codigo', 'curso_descricao', 'diario_id'];
+        $cfs = $this->get_custom_fields_for_courses($course_ids, $campos);
+
+        foreach ($courses as &$c) {
+            $this->inject_custom_fields($c, $cfs[$c->id] ?? []);
         }
 
         foreach ($courses as &$c) {
@@ -110,14 +104,60 @@ class get_diarios_service extends \tool_painelava\service
     private function inject_custom_fields($curso, $cf_data) {
         $cf_data = (array) $cf_data;
 
-        $curso->turma_ano_periodo = isset($cf_data['turma_ano_periodo']) ? trim($cf_data['turma_ano_periodo']) : '';
-        $curso->disciplina_id     = isset($cf_data['disciplina_id']) ? trim($cf_data['disciplina_id']) : '';
-        $curso->disciplina_sigla  = isset($cf_data['disciplina_sigla']) ? trim($cf_data['disciplina_sigla']) : '';
-        $curso->curso_codigo      = isset($cf_data['curso_codigo']) ? trim($cf_data['curso_codigo']) : '';
-        $curso->curso_descricao   = isset($cf_data['curso_descricao']) ? trim($cf_data['curso_descricao']) : '';
-        $curso->diario_id         = isset($cf_data['diario_id']) ? trim($cf_data['diario_id']) : null;
+        $curso->turma_ano_periodo    = isset($cf_data['turma_ano_periodo']) ? trim($cf_data['turma_ano_periodo']) : '';
+        $curso->disciplina_id        = isset($cf_data['disciplina_id']) ? trim($cf_data['disciplina_id']) : '';
+        $curso->disciplina_descricao = isset($cf_data['disciplina_descricao']) ? trim($cf_data['disciplina_descricao']) : '';
+        $curso->disciplina_sigla     = isset($cf_data['disciplina_sigla']) ? trim($cf_data['disciplina_sigla']) : '';
+        $curso->curso_codigo         = isset($cf_data['curso_codigo']) ? trim($cf_data['curso_codigo']) : '';
+        $curso->curso_descricao      = isset($cf_data['curso_descricao']) ? trim($cf_data['curso_descricao']) : '';
+        $curso->diario_id            = isset($cf_data['diario_id']) ? trim($cf_data['diario_id']) : null;
         
         return $curso;
+    }
+
+    /**
+     * Busca os valores dos custom fields para uma lista de IDs de cursos.
+     * Se $fields for vazio, busca TODOS os custom fields daqueles cursos.
+     * Retorna um array no formato: [course_id => [shortname => value, ...]]
+     */
+    private function get_custom_fields_for_courses(array $course_ids, array $fields_to_fetch = []) {
+        global $DB;
+        
+        if (empty($course_ids)) {
+            return [];
+        }
+
+        // Prepara o IN() para os IDs dos cursos
+        list($course_insql, $course_inparams) = $DB->get_in_or_equal($course_ids);
+        $params = $course_inparams;
+
+        // Prepara o filtro de campos (se foi especificado)
+        $field_filter = "";
+        if (!empty($fields_to_fetch)) {
+            list($field_insql, $field_inparams) = $DB->get_in_or_equal($fields_to_fetch);
+            $field_filter = "AND f.shortname $field_insql";
+            $params = array_merge($params, $field_inparams);
+        }
+
+        // Faz uma única consulta robusta
+        $sql = "SELECT d.id AS dataid, d.instanceid, f.shortname, d.value, d.charvalue
+                FROM {customfield_data} d
+                JOIN {customfield_field} f ON d.fieldid = f.id
+                WHERE d.instanceid $course_insql
+                $field_filter";
+                  
+        $records = $DB->get_records_sql($sql, $params);
+        
+        $results = [];
+        if ($records) {
+            foreach ($records as $rec) {
+                // Pega o valor limpo (priorizando textos grandes e caindo para curtos)
+                $val = $rec->value ?: $rec->charvalue;
+                $results[$rec->instanceid][$rec->shortname] = is_string($val) ? trim($val) : $val;
+            }
+        }
+        
+        return $results;
     }
 
     /**
@@ -213,22 +253,9 @@ class get_diarios_service extends \tool_painelava\service
 
         // Busca a NOVA regra: 'restricoes_de_autoinscricao' e os campos customizados
         $vitrine_ids = array_column($cursos_vitrine, 'id');
-        list($v_insql, $v_inparams) = $DB->get_in_or_equal($vitrine_ids);
+        $campos_vitrine = ['restricoes_de_autoinscricao', 'turma_ano_periodo', 'disciplina_id', 'disciplina_descricao', 'disciplina_sigla', 'curso_codigo', 'curso_descricao', 'diario_id'];
         
-        $sql_cf_vitrine = "SELECT d.id AS dataid, d.instanceid, f.shortname, d.value, d.charvalue
-                            FROM {customfield_data} d
-                            JOIN {customfield_field} f ON d.fieldid = f.id
-                            WHERE d.instanceid $v_insql
-                                AND f.shortname IN ('restricoes_de_autoinscricao', 'turma_ano_periodo', 'disciplina_id', 'disciplina_sigla', 'curso_codigo', 'curso_descricao', 'diario_id')";
-        
-        $cf_vitrine_records = $DB->get_records_sql($sql_cf_vitrine, $v_inparams);
-        
-        $cf_vitrine = [];
-        if ($cf_vitrine_records) {
-            foreach ($cf_vitrine_records as $rec) {
-                $cf_vitrine[$rec->instanceid][$rec->shortname] = $rec->value ?: $rec->charvalue;
-            }
-        }
+        $cf_vitrine = $this->get_custom_fields_for_courses($vitrine_ids, $campos_vitrine);
 
         $mapa_matriculados = [];
         foreach ($all_diarios as $diario_aluno) {
@@ -297,6 +324,9 @@ class get_diarios_service extends \tool_painelava\service
         $all_diarios = $this->get_all_diarios($USER->username);
         $enrolled_courses = \core_course_external::get_enrolled_courses_by_timeline_classification($situacao, 0, 0, $ordenacao)['courses'];
 
+        $enrolled_ids = array_column($enrolled_courses, 'id');
+        $cfs_matriculados = $this->get_custom_fields_for_courses($enrolled_ids);
+
         $agrupamentos = [];
 
         foreach ($enrolled_courses as $diario) {
@@ -313,20 +343,10 @@ class get_diarios_service extends \tool_painelava\service
             $curso_limpo->hidden = $diario->hidden ?? false;
             $curso_limpo->can_set_visibility = has_capability('moodle/course:visibility', $coursecontext, $USER) ? 1 : 0;
 
-            $sql = "SELECT f.shortname, d.intvalue, d.shortcharvalue, d.charvalue, d.value, f.type, f.configdata
-                    FROM {customfield_data} d
-                    JOIN {customfield_field} f ON d.fieldid = f.id
-                    WHERE d.instanceid = ?";
-            $cf_records = $DB->get_records_sql($sql, [$diario->id]);
+            $cf_dados = $cfs_matriculados[$diario->id] ?? [];
+            $this->inject_custom_fields($curso_limpo, $cf_dados);
 
-            $cf = new \stdClass();
-            foreach ($cf_records as $record) {
-                $cf->{$record->shortname} = $record->value ?: $record->charvalue ?: $record->shortcharvalue;
-            }
-
-            $this->inject_custom_fields($curso_limpo, $cf);
-
-            $sala_tipo = isset($cf->sala_tipo) ? strtolower(trim($cf->sala_tipo)) : '';
+            $sala_tipo = isset($cf_dados['sala_tipo']) ? strtolower($cf_dados['sala_tipo']) : '';
 
             // FALLBACK DE LEGADO: Se não tiver o campo preenchido, usa a lógica de RegEx
             if (empty($sala_tipo)) {
