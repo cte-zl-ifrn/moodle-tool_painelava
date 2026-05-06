@@ -11,8 +11,6 @@ require_once('../../../../config.php');
 require_once('../locallib.php');
 require_once("servicelib.php");
 
-define("REGEX_CODIGO_COORDENACAO", '/^ZL\.\d*/');
-define("REGEX_CODIGO_PRATICA", '/^(.*)\.(\d{11,14}\d*)$/');
 
 class get_diarios_service extends \tool_painelava\service
 {
@@ -238,36 +236,23 @@ class get_diarios_service extends \tool_painelava\service
         foreach ($enrolled_courses as $diario) {
             $coursecontext = \context_course::instance($diario->id);
 
-            $curso_limpo = new \stdClass();
-            $curso_limpo->id = $diario->id;
-            $curso_limpo->fullname = $diario->fullname;
-            $curso_limpo->shortname = $diario->shortname;
-            $curso_limpo->viewurl = $diario->viewurl;
-            $curso_limpo->progress = $diario->progress ?? null;
-            $curso_limpo->hasprogress = $diario->hasprogress ?? false;
-            $curso_limpo->isfavourite = $diario->isfavourite ?? false;
-            $curso_limpo->visible = $diario->visible ?? false;
-            $curso_limpo->can_set_visibility = has_capability('moodle/course:visibility', $coursecontext, $USER) ? 1 : 0;
+            $curso_limpo = (object) [
+                'id' => $diario->id,
+                'fullname' => $diario->fullname,
+                'shortname' => $diario->shortname,
+                'viewurl' => $diario->viewurl,
+                'progress' => $diario->progress ?? null,
+                'hasprogress' => $diario->hasprogress ?? false,
+                'isfavourite' => $diario->isfavourite ?? false,
+                'visible' => $diario->visible ?? false,
+                'is_enrolled' => true,
+                'can_set_visibility' => has_capability('moodle/course:visibility', $coursecontext, $USER) ? 1 : 0,
+            ];
 
             $cf_dados = $cfs_matriculados[$diario->id] ?? [];
             $this->inject_custom_fields($curso_limpo, $cf_dados);
 
-            $sala_tipo = isset($cf_dados['sala_tipo']) ? strtolower(trim($cf_dados['sala_tipo'])) : '';
-
-            // FALLBACK DE LEGADO
-            if (empty($sala_tipo)) {
-                if (preg_match(REGEX_CODIGO_COORDENACAO, $diario->shortname)) {
-                    $sala_tipo = 'coordenacoes';
-                } elseif (preg_match(REGEX_CODIGO_PRATICA, $diario->shortname)) {
-                    $sala_tipo = 'praticas';
-                } else {
-                    $sala_tipo = 'diarios';
-                }
-            }
-
-            if ($sala_tipo === 'autoinscricoes') {
-                continue;
-            }
+            $sala_tipo = !empty($cf_dados['sala_tipo']) ? strtolower(trim($cf_dados['sala_tipo'])) : 'diarios';
 
             if (!isset($agrupamentos[$sala_tipo])) {
                 $agrupamentos[$sala_tipo] = [];
@@ -298,16 +283,27 @@ class get_diarios_service extends \tool_painelava\service
         }
 
         // Independente de ter usuário ou não, busca a vitrine
-        $autoinscricoes = $this->get_autoinscricoes($userid, $all_diarios);
+        $vitrine = $this->get_autoinscricoes($userid, $all_diarios);
+
+        // Garante que o agrupamento de autoinscrições exista
+        if ($vitrine && !isset($agrupamentos['autoinscricoes'])) {
+            $agrupamentos['autoinscricoes'] = [];
+        }
+
+        // Adiciona apenas os cursos da vitrine que o aluno AINDA NÃO está matriculado
+        foreach ($vitrine as $curso_vitrine) {
+            if (!$curso_vitrine->is_enrolled) {
+                $agrupamentos['autoinscricoes'][] = $curso_vitrine;
+            }
+        }
 
         $return_base = [
             "semestres" => $this->get_semestres($all_diarios),
             "disciplinas" => $this->get_disciplinas($all_diarios),
             "cursos" => $this->get_cursos($all_diarios),
-            "autoinscricoes" => $autoinscricoes,
-        ];
+        ]; 
 
-        if (empty($agrupamentos)) {
+        if (!isset($agrupamentos['diarios'])) {
             $agrupamentos['diarios'] = [];
         }
 
