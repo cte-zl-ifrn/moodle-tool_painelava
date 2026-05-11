@@ -34,10 +34,10 @@ $string['painelava:viewothercourses']  = 'View another user\'s course list';
 
 // Settings.
 $string['auth_token_header'] = 'Painel AVA';
-$string['auth_token_header_desc'] = 'Which will be the token used by Painel AVA to authenticate itself to this Moodle installation';
+$string['auth_token_header_desc'] = 'Which will be the token used by Painel AVA to authenticate itself to this Moodle installation.';
 
 $string["auth_token"] = 'Auth token';
-$string["auth_token_desc"] = 'Which will be the token used by Painel AVA to authenticate itself to this Moodle installation';
+$string["auth_token_desc"] = 'Which will be the token used by Painel AVA to authenticate itself to this Moodle installation.';
 
 $string['painel_url'] = 'Painel AVA URL';
 $string['painel_url_desc'] = 'It is used to update user preference settings (e.g., https://ava.ifrn.edu.br)';
