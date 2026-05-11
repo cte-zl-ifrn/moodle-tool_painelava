@@ -56,7 +56,7 @@ function config($name)
 
 function aget($array, $key, $default = null)
 {
-    return \key_exists($key, $array) ? $array[$key] : $default;
+    return \array_key_exists($key, $array) ? $array[$key] : $default;
 }
 
 
