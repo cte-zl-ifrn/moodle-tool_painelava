@@ -31,6 +31,11 @@ namespace tool_painelava;
 function get_last_sort_order($tablename)
 {
     global $DB;
+
+    if (!\is_string($tablename) || !\preg_match('/^[a-z][a-z0-9_]*$/i', $tablename)) {
+        throw new \coding_exception('Invalid table name provided to get_last_sort_order().');
+    }
+
     $l = $DB->get_record_sql('SELECT coalesce(max(sortorder), 0) + 1 as sortorder from {' . $tablename . '}');
     return $l->sortorder;
 }
@@ -56,7 +61,7 @@ function config($name)
 
 function aget($array, $key, $default = null)
 {
-    return \key_exists($key, $array) ? $array[$key] : $default;
+    return \array_key_exists($key, $array) ? $array[$key] : $default;
 }
 
 
