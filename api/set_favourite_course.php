@@ -30,8 +30,6 @@ class set_favourite_course_service extends \tool_painelava\service
              return ['error' => ['message' => "Usuário não encontrado", 'code' => 404]];
         }
 
-        $course = $DB->get_record('course', ['id' => $_GET['courseid']]);
-
         $is_favourite = ($favourite == 1 || $favourite === 'true' || $favourite === true);
 
         return $this->execute($courseid, $is_favourite);
