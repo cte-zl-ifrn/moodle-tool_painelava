@@ -44,7 +44,7 @@ try {
     $url = $painel_url . '/api/v1/set_user_preference/'
          . '?username=' . urlencode($username)
          . '&category=' . urlencode($category)
-         . '&key=' . $key
+         . '&key=' . urlencode($key)
          . '&value=' . urlencode($value);
 
     $curl = new \curl();
