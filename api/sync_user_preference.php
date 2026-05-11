@@ -9,9 +9,7 @@ if (!defined('NO_MOODLE_COOKIES')) {
 require_once('../../../../config.php');
 require_once("../locallib.php");
 
-// Removido require_login() e require_sesskey() pois esta é uma API externa
-// A autenticação é feita via token no código abaixo
-
+// A autenticação feita via token 
 $sync_up_auth_token = config('auth_token');
 $painel_url = config('painel_url');
 
@@ -44,7 +42,7 @@ try {
     $url = $painel_url . '/api/v1/set_user_preference/'
          . '?username=' . urlencode($username)
          . '&category=' . urlencode($category)
-         . '&key=' . $key
+         . '&key=' . urlencode($key)
          . '&value=' . urlencode($value);
 
     $curl = new \curl();
