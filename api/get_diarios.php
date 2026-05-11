@@ -106,6 +106,27 @@ class get_diarios_service extends \tool_painelava\service
     }
 
     /**
+     * Verifica se um curso do tipo 'diario' atende aos filtros de busca informados na API.
+     */
+    private function atende_filtros($curso, $filtros) {
+        // Se a API foi chamada sem nenhum filtro, o curso passa direto
+        if (!$filtros['has_filters']) {
+            return true;
+        }
+
+        // Verifica a string de busca (q) usando stripos (que já é case-insensitive, dispensando o strtoupper)
+        $match_q = empty($filtros['q']) || stripos($curso->shortname . ' ' . $curso->fullname, $filtros['q']) !== false;
+        
+        // Verifica os parâmetros exatos
+        $match_semestre   = empty($filtros['semestre'])   || $curso->turma_ano_periodo == $filtros['semestre'];
+        $match_disciplina = empty($filtros['disciplina']) || $curso->disciplina_id == $filtros['disciplina'];
+        $match_curso      = empty($filtros['curso'])      || $curso->curso_codigo == $filtros['curso'];
+
+        // Só retorna verdadeiro se TODAS as condições ativas forem satisfeitas
+        return $match_q && $match_semestre && $match_disciplina && $match_curso;
+    }
+
+    /**
      * Busca os valores dos custom fields para uma lista de IDs de cursos.
      * Se $fields for vazio, busca TODOS os custom fields daqueles cursos.
      * Retorna um array no formato: [course_id => [shortname => value, ...]]
@@ -232,6 +253,15 @@ class get_diarios_service extends \tool_painelava\service
             $cfs_matriculados = $this->get_custom_fields_for_courses($enrolled_ids);
         }
 
+        // Empacota os filtros recebidos pela API uma única vez
+        $filtros_busca = [
+            'semestre'    => $semestre,
+            'disciplina'  => $disciplina,
+            'curso'       => $curso,
+            'q'           => $q,
+            'has_filters' => !empty($semestre . $disciplina . $curso . $q)
+        ];
+
         // Processa as matrículas (se houver alguma)
         foreach ($enrolled_courses as $diario) {
             $coursecontext = \context_course::instance($diario->id);
@@ -258,26 +288,12 @@ class get_diarios_service extends \tool_painelava\service
                 $agrupamentos[$sala_tipo] = [];
             }
 
-            // Lógica de filtragem (Lendo as variáveis novas e limpas)
+            // sala_tipo "diarios" passa por filtros de busca, os demais tipos entram direto sem filtros
             if ($sala_tipo === 'diarios') {
-                $c_semestre   = $curso_limpo->turma_ano_periodo;
-                $c_disciplina = $curso_limpo->disciplina_id;
-                $c_curso      = $curso_limpo->curso_codigo;
-
-                if (!empty($semestre . $disciplina . $curso . $q)) {
-                    if (
-                        ((empty($q)) || (!empty($q) && strpos(strtoupper($curso_limpo->shortname . ' ' . $curso_limpo->fullname), strtoupper($q)) !== false)) &&
-                        ((empty($semestre)) || (!empty($semestre) && $c_semestre == $semestre)) &&
-                        ((empty($disciplina)) || (!empty($disciplina) && $c_disciplina == $disciplina)) &&
-                        ((empty($curso)) || (!empty($curso) && $c_curso == $curso))
-                    ) {
-                        $agrupamentos[$sala_tipo][] = $curso_limpo;
-                    }
-                } else {
+                if ($this->atende_filtros($curso_limpo, $filtros_busca)) {
                     $agrupamentos[$sala_tipo][] = $curso_limpo;
                 }
             } else {
-                // Outros tipos de sala entram sem filtros de busca
                 $agrupamentos[$sala_tipo][] = $curso_limpo;
             }
         }
