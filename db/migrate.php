@@ -98,7 +98,7 @@ function tool_painelava_migrate($oldversion)
 
     $logging = new \xmldb_table("tool_painelava_logging");
     if (!$dbman->table_exists($logging)) {
-        $logging->add_field("id",                   XMLDB_TYPE_INTEGER, '10',       XMLDB_UNSIGNED, XMLDB_NOTNULL, XMLDB_SEQUENCE,  null, null, null);
+        $logging->add_field("userid",               XMLDB_TYPE_INTEGER, '10',       XMLDB_UNSIGNED, XMLDB_NOTNULL, null,            null, null, null);
         $logging->add_field("userid",               XMLDB_TYPE_TEXT,    'medium',   XMLDB_UNSIGNED, XMLDB_NOTNULL, null,            null, null, null);
         $logging->add_field("targetuserid",         XMLDB_TYPE_INTEGER, '10',       XMLDB_UNSIGNED, XMLDB_NOTNULL, null,            null, null, null);
         $logging->add_field("user_ipaddress",       XMLDB_TYPE_CHAR,    '45',       null, null, null,            null, null, null);
