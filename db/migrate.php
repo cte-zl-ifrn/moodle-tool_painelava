@@ -32,61 +32,44 @@ defined('MOODLE_INTERNAL') || die();
 global $CFG;
 require_once($CFG->dirroot . '/admin/tool/painelava/locallib.php');
 
+class migration_helpers {
+    
+    public static function save_course_custom_field($categoryid, $shortname, $name, $type = 'text', $configdata = '{"required":"0","uniquevalues":"0","displaysize":50,"maxlength":250,"ispassword":"0","link":"","locked":"0","visibility":"0"}')
+    {
+        return get_or_create(
+            'customfield_field',
+            ['shortname' => $shortname],
+            ['categoryid' => $categoryid, 'name' => $name, 'type' => $type, 'configdata' => $configdata, 'timecreated' => time(), 'timemodified' => time(), 'sortorder' => get_last_sort_order('customfield_field')]
+        );
+    }
 
-function save_course_custom_field($categoryid, $shortname, $name, $type = 'text', $configdata = '{"required":"0","uniquevalues":"0","displaysize":50,"maxlength":250,"ispassword":"0","link":"","locked":"0","visibility":"0"}')
-{
-    return get_or_create(
-        'customfield_field',
-        ['shortname' => $shortname],
-        ['categoryid' => $categoryid, 'name' => $name, 'type' => $type, 'configdata' => $configdata, 'timecreated' => time(), 'timemodified' => time(), 'sortorder' => get_last_sort_order('customfield_field')]
-    );
-}
+    public static function save_user_custom_field($categoryid, $shortname, $name, $datatype = 'text', $visible = 1, $p1 = NULL, $p2 = NULL)
+    {
+        return get_or_create(
+            'user_info_field',
+            ['shortname' => $shortname],
+            ['categoryid' => $categoryid, 'name' => $name, 'description' => $name, 'descriptionformat' => 2, 'datatype' => $datatype, 'visible' => $visible, 'param1' => $p1, 'param2' => $p2]
+        );
+    }
 
+    public static function bulk_course_custom_field()
+    {
+        global $DB;
+        $cid = get_or_create(
+            'customfield_category',
+            ['name' => 'Painel AVA', 'component' => 'core_course', 'area' => 'course'],
+            ['sortorder' => get_last_sort_order('customfield_category'), 'itemid' => 0, 'contextid' => 1, 'descriptionformat' => 0, 'timecreated' => time(), 'timemodified' => time()]
+        )->id;
 
-function save_user_custom_field($categoryid, $shortname, $name, $datatype = 'text', $visible = 1, $p1 = NULL, $p2 = NULL)
-{
-    return get_or_create(
-        'user_info_field',
-        ['shortname' => $shortname],
-        ['categoryid' => $categoryid, 'name' => $name, 'description' => $name, 'descriptionformat' => 2, 'datatype' => $datatype, 'visible' => $visible, 'param1' => $p1, 'param2' => $p2]
-    );
-}
-
-
-function bulk_course_custom_field()
-{
-    global $DB;
-    $cid = get_or_create(
-        'customfield_category',
-        ['name' => 'Painel AVA', 'component' => 'core_course', 'area' => 'course'],
-        ['sortorder' => get_last_sort_order('customfield_category'), 'itemid' => 0, 'contextid' => 1, 'descriptionformat' => 0, 'timecreated' => time(), 'timemodified' => time()]
-    )->id;
-
-    // $sql = "select 'diarios' AS id, 'Diários' as data "
-    //      . "union select 'autoinscricoes' AS id, 'Autoinscrições' as data "
-    //      . "union select 'coordenacoes' AS id, 'Coordenações' as data "
-    //      . "union select 'praticas' AS id, 'Práticas' as data "
-    //      . "union select 'modelos' AS id, 'Modelos' as data";
-
-    // $configdata = json_encode([
-    //     "required" => "0",
-    //     "uniquevalues" => "0",
-    //     "dynamicsql" => $sql,
-    //     "autocomplete" => "0",
-    //     "defaultvalue" => "",
-    //     "multiselect" => "0",
-    //     "locked" => "1",
-    //     "visibility" => "0"
-    // ]);
-    save_course_custom_field($cid, 'curso_autoinscricao', 'Curso aceita autoinscrição', 'checkbox');
-    save_course_custom_field(
-        $cid,
-        'sala_tipo',
-        'Tipo de sala',
-        // 'dynamic', 
-        // $configdata
-    );
-    save_course_custom_field($cid, 'restricoes_de_autoinscricao', 'Restrições de autoinscrição', 'textarea', '{}');
+        self::save_course_custom_field($cid, 'curso_autoinscricao', 'Curso aceita autoinscrição', 'checkbox');
+        self::save_course_custom_field(
+            $cid,
+            'sala_tipo',
+            'Tipo de sala'
+        );
+        
+        self::save_course_custom_field($cid, 'restricoes_de_autoinscricao', 'Restrições de autoinscrição', 'textarea', '{}');
+    }
 }
 
 
@@ -99,7 +82,7 @@ function tool_painelava_migrate($oldversion)
     $logging = new \xmldb_table("tool_painelava_logging");
     if (!$dbman->table_exists($logging)) {
         $logging->add_field("id",                   XMLDB_TYPE_INTEGER, '10',       XMLDB_UNSIGNED, XMLDB_NOTNULL, XMLDB_SEQUENCE,  null, null, null);
-        $logging->add_field("userid",               XMLDB_TYPE_TEXT,    'medium',   XMLDB_UNSIGNED, XMLDB_NOTNULL, null,            null, null, null);
+        $logging->add_field("userid",               XMLDB_TYPE_INTEGER, '10',       XMLDB_UNSIGNED, XMLDB_NOTNULL, null,            null, null, null);
         $logging->add_field("targetuserid",         XMLDB_TYPE_INTEGER, '10',       XMLDB_UNSIGNED, XMLDB_NOTNULL, null,            null, null, null);
         $logging->add_field("user_ipaddress",       XMLDB_TYPE_CHAR,    '45',       null, null, null,            null, null, null);
         $logging->add_field("targetuser_ipaddress", XMLDB_TYPE_CHAR,    '45',       null, null, null,            null, null, null);
@@ -113,7 +96,7 @@ function tool_painelava_migrate($oldversion)
         $dbman->create_table($logging);
     }
 
-    bulk_course_custom_field();
+    migration_helpers::bulk_course_custom_field();
 
     return true;
 }
