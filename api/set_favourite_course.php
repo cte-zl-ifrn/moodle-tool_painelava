@@ -18,17 +18,19 @@ class set_favourite_course_service extends \tool_painelava\service
 
     function do_call()
     {
-        global $DB, $USER;
+        global $DB;
 
         $username  = \tool_painelava\aget($_GET, 'username', '');
         $courseid  = \tool_painelava\aget($_GET, 'courseid', 0);
         $favourite = \tool_painelava\aget($_GET, 'favourite', 0);
 
-        $USER = $DB->get_record('user', ['username' => strtolower($username)]);
+        $user = $DB->get_record('user', ['username' => strtolower($username)]);
 
-        if (!$USER) {
+        if (!$user) {
              return ['error' => ['message' => "Usuário não encontrado", 'code' => 404]];
         }
+
+        \core\session\manager::set_user($user);
 
         $is_favourite = ($favourite == 1 || $favourite === 'true' || $favourite === true);
 
